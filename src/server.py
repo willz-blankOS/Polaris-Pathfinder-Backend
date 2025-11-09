@@ -50,15 +50,15 @@ class ApiHandler(BaseHTTPRequestHandler):
             for k,v in parse_qs(parsed.query).items()
         }
         
-        if self.path == "/api/ping":
+        if path == "/api/ping":
             # Simple JSON response
             return self.send_json(200, {"ok": True, "service": "demo", "version": "1.0"})
-        elif self.path == "/api/echo":
+        elif path == "/api/echo":
             # Echo query params + client info
             return self.send_json(200, {"query": q, "ip": self.client_address[0]})
-        elif self.path.startswith("/get_route/") or self.path.startswith("get_route/"):
+        elif path.startswith("/get_route/") or self.path.startswith("get_route/"):
             try:
-                origin, dest = utils.parse_get_route_path(self.path)
+                origin, dest = utils.parse_get_route_path(path)
                 top_routes =  routes.topk_routes(origin, dest)
                 
                 self.send_json(200, top_routes)
@@ -68,7 +68,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         else:
             self.send_json(
-                404, {"error": "Not found", "path": self.path}
+                404, {"error": "Not found", "path": path}
             )
         
 def main():
