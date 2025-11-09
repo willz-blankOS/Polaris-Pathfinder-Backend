@@ -17,9 +17,9 @@ def as_json_bytes(obj):
         obj, ensure_ascii=False, separators=(",", ":")
     ).encode()
 
-class ThreadingHTTPServer(ThreadingMixIn, ThreadingHTTPServer):
-    daemon_threads = True  # kill worker threads on exit
-    allow_reuse_address = True
+#class ThreadingHTTPServer(ThreadingMixIn, ThreadingHTTPServer):
+#    daemon_threads = True  # kill worker threads on exit
+#    allow_reuse_address = True
 
 class ApiHandler(BaseHTTPRequestHandler):
     def end_headers(self):
