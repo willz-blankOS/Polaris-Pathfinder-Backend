@@ -6,6 +6,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import logging
 import signal
 import ssl
+from urllib.parse import urlparse, parse_qs
 
 import utils
 import routes
@@ -16,7 +17,7 @@ def as_json_bytes(obj):
     ).encode()
 
 
-class Handler(BaseHTTPRequestHandler):
+class ApiHandler(BaseHTTPRequestHandler):
     def end_headers(self):
         # CORS + basic security (since we're over HTTPS)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -27,6 +28,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         super().end_headers()
     
+    def log_message(self, fmt, *args):
+        logging.info("%s - - [%s] %s", self.client_address[0], self.log_date_time_string(), fmt % args)
+    
     def send_json(self, status, obj):
         body = as_json_bytes(obj)
         self.send_response(status)
@@ -35,14 +39,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_OPTIONS(self):
+        self.send_response(204); self.end_headers()
     
     # Add a tiny health endpoint
     def do_GET(self):
-        if self.path == "/health":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"status":"ok"}')
+        parsed = urlparse(self.path)
+        path, q = parsed.path, {
+            k: (v if len(v)>1 else v[0]) 
+            for k,v in parse_qs(parsed.query).items()
+        }
+        
+        if self.path == "/api/ping":
+            # Simple JSON response
+            return self.send_json(200, {"ok": True, "service": "demo", "version": "1.0"})
+        elif self.path == "/api/echo":
+            # Echo query params + client info
+            return self.send_json(200, {"query": q, "ip": self.client_address[0]})
         elif self.path.startswith("/get_route/") or self.path.startswith("get_route/"):
             try:
                 origin, dest = utils.parse_get_route_path(self.path)
@@ -54,17 +67,10 @@ class Handler(BaseHTTPRequestHandler):
             
             return
         else:
-            super().do_GET()
-
-    # Cleaner access logs
-    def log_message(self, fmt, *args):
-        logging.info("%s - - [%s] %s",
-                     self.client_address[0],
-                     self.log_date_time_string(),
-                     fmt % args)
+            self.send_json(
+                404, {"error": "Not found", "path": self.path}
+            )
         
-    
-
 def main():
     ap = argparse.ArgumentParser(description="Minimal Python HTTPS server")
     ap.add_argument("--host", default="0.0.0.0")
@@ -75,34 +81,23 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s")
 
-    # Threaded HTTP server (serves files from current working dir)
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-
-    # TLS context
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
-    # Safe default ciphers; leave as-is or tweak for your environment
+    httpd = ThreadingHTTPServer((args.host, args.port), ApiHandler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     try:
-        context.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!MD5:!3DES")
+        ctx.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!MD5:!3DES")
     except ssl.SSLError:
-        pass  # some older OpenSSL builds might not support this exact string
-    context.load_cert_chain(certfile=args.cert, keyfile=args.key)
+        pass
+    ctx.load_cert_chain(certfile=args.cert, keyfile=args.key)
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
 
-    httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+    def shutdown(*_): logging.info("Shutting down…"); httpd.shutdown()
+    signal.signal(signal.SIGINT, shutdown)
+    try: signal.signal(signal.SIGTERM, shutdown)
+    except Exception: pass
 
-    def _shutdown(*_):
-        logging.info("Shutting down...")
-        httpd.shutdown()
-
-    signal.signal(signal.SIGINT, _shutdown)
-    if hasattr(signal, "SIGTERM"):
-        signal.signal(signal.SIGTERM, _shutdown)
-
-    logging.info(f"Serving HTTPS on {args.host}:{args.port} (Ctrl+C to quit)")
-    try:
-        httpd.serve_forever()
-    finally:
-        httpd.server_close()
+    logging.info(f"Serving HTTPS on {args.host}:{args.port}")
+    httpd.serve_forever()
 
 if __name__ == "__main__":
     main()
