@@ -41,7 +41,7 @@ def candidate_routes(
         dlon = pad_m / m_per_deg_lon
         west, east = min(lon1, lon2) - dlon, max(lon1, lon2) + dlon
         south, north = min(lat1, lat2) - dlat, max(lat1, lat2) + dlat
-        return (north, south, east, west)
+        return (west, south, east, north)
     
     def route_edges(route_nodes):
         return {
@@ -83,9 +83,10 @@ def candidate_routes(
         
         return {'type': 'LineString', 'coordinates': coords}
 
-    north, south, east, west = bbox_pad(origin, dest, pad_m)
+    bbox = bbox_pad(origin, dest, pad_m)
     G = ox.graph_from_bbox(
-        (north, south, east, west), network_type='walk', simplify=True
+        bbox, network_type='walk', simplify=True, 
+        retain_all=False, truncate_by_edge=True
     )
     ensure_edge_geometry(G)
     
