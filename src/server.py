@@ -91,7 +91,10 @@ def main():
     ctx.load_cert_chain(certfile=args.cert, keyfile=args.key)
     httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
 
-    def shutdown(*_): logging.info("Shutting down…"); httpd.shutdown()
+    def shutdown(*_): 
+        logging.info("Shutting down…") 
+        httpd.shutdown()
+        exit()
     signal.signal(signal.SIGINT, shutdown)
     try: signal.signal(signal.SIGTERM, shutdown)
     except Exception: pass
