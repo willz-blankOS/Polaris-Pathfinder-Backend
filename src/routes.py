@@ -2,6 +2,8 @@ import math
 import networkx as nx
 import osmnx as ox
 from shapely.geometry import Point, LineString
+from shapely.ops import transform as shp_transform
+from pyproj import Transformer, CRS
 
 # OSMnx v2 sane defaults
 ox.settings.use_cache = True
@@ -14,8 +16,9 @@ def candidate_routes(
     max_routes: int = 16,
     time_slack_min: float = 5.0,
     max_overlap = 0.7,
-    pad_m: float = 2000.0, #(meters)
     walk_speed_mps: float = 1.4, #~5 km/h
+    corridor_half_width_m: float = 900.0,
+    fallback_pad_m: float = 1200.0
 ) -> list:
     """
     Finds K fastest routes between origin and destination.
@@ -34,6 +37,10 @@ def candidate_routes(
     list
         A list of routes, where each route is represented as a list of (longitude, latitude) tuples.
     """
+    
+    def _utm_epsg(lon, lat):
+        zone = int(math.floor((lon + 180) / 6) + 1)
+        return int(f"{326 if lat >= 0 else 327}{zone:02d}")
     
     def bbox_pad(origin, dest, pad_m):
         (lon1, lat1) = origin
@@ -64,12 +71,21 @@ def candidate_routes(
             time_s += L / walk_speed_mps
         return dist / 1000.0, time_s / 60.0  # km, min
 
-    def ensure_edge_geometry(G):
-        for u, v, k, data in G.edges(keys=True, data=True):
-            if 'geometry' not in data:
-                point_u = Point((G.nodes[u]['x'], G.nodes[u]['y']))
-                point_v = Point((G.nodes[v]['x'], G.nodes[v]['y']))
-                data['geometry'] = LineString([point_u, point_v])
+    def _corridor_polygon(origin_ll, dest_ll, half_width_m=900.0):
+        (lon1, lat1), (lon2, lat2) = origin_ll, dest_ll
+        lonc, latc = (lon1 + lon2)/2.0, (lat1 + lat2)/2.0
+        crs_utm = CRS.from_epsg(_utm_epsg(lonc, latc))
+        to_utm   = Transformer.from_crs("EPSG:4326", crs_utm, always_xy=True).transform
+        to_wgs84 = Transformer.from_crs(crs_utm, "EPSG:4326", always_xy=True).transform
+        line_ll  = LineString([(lon1, lat1), (lon2, lat2)])
+        poly_utm = shp_transform(to_utm, line_ll).buffer(half_width_m, cap_style=2, join_style=2)
+        return shp_transform(to_wgs84, poly_utm)
+
+    def _ensure_edge_geometry(G):
+        for u, v, k, d in G.edges(keys=True, data=True):
+            if "geometry" not in d:
+                d["geometry"] = LineString([(G.nodes[u]["x"], G.nodes[u]["y"]),
+                                            (G.nodes[v]["x"], G.nodes[v]["y"])])
 
     def route_linestring(G, route_nodes):
         coords = []
@@ -88,12 +104,33 @@ def candidate_routes(
         
         return {'type': 'LineString', 'coordinates': coords}
 
-    bbox = bbox_pad(origin, dest, pad_m)
-    G = ox.graph_from_bbox(
-        bbox, network_type='walk', simplify=True, 
-        retain_all=False, truncate_by_edge=True
-    )
-    ensure_edge_geometry(G)
+    G = None
+    for hw in (corridor_half_width_m, corridor_half_width_m*1.5):
+        poly = _corridor_polygon(origin, dest, hw)
+        G = ox.graph_from_polygon(poly, network_type="walk", simplify=True,
+                                  retain_all=True, truncate_by_edge=True)
+        if len(G) > 0:
+            break
+    if G is None or len(G) == 0:
+        # very small bbox fallback
+        (lon1, lat1), (lon2, lat2) = origin, dest
+        latc = 0.5*(lat1+lat2)
+        m_per_deg_lat = 111_320.0
+        m_per_deg_lon = 111_320.0*math.cos(math.radians(latc))
+        dlat = fallback_pad_m/m_per_deg_lat
+        dlon = fallback_pad_m/m_per_deg_lon
+        bbox = (min(lon1,lon2)-dlon, min(lat1,lat2)-dlat, max(lon1,lon2)+dlon, max(lat1,lat2)+dlat)
+        G = ox.graph_from_bbox(bbox=bbox, network_type="walk",
+                               simplify=True, retain_all=True, truncate_by_edge=True)
+        if len(G) == 0:
+            raise RuntimeError("No OSM data found (check coords or widen corridor).")
+
+    _ensure_edge_geometry(G)
+
+    # 2) edge time attribute (no lambda)
+    for _, _, _, d in G.edges(keys=True, data=True):
+        L = float(d.get("length", 0.0))
+        d["time_s"] = L / walk_speed_mps if L > 0 else 0.0
     
     src = ox.distance.nearest_nodes(G, origin[0], origin[1])
     dst = ox.distance.nearest_nodes(G, dest[0], dest[1])
