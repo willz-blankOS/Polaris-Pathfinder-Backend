@@ -85,7 +85,7 @@ def candidate_routes(
 
     north, south, east, west = bbox_pad(origin, dest, pad_m)
     G = ox.graph_from_bbox(
-        (west, south, east, north), network_type='walk', simplify=True
+        (north, south, east, west), network_type='walk', simplify=True
     )
     ensure_edge_geometry(G)
     
