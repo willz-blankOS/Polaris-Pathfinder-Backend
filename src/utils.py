@@ -65,7 +65,7 @@ def parse_latlon_pair(text: str) -> tuple[float, float]:
 
 # ---- Path parsing helper ----
 
-_GET_ROUTE_RX = re.compile(r"^/?get_route/from=(.+?)&&to=(.+?)$", re.IGNORECASE)
+_GET_ROUTE_RX = re.compile(r"^/(?:api/)?get_route/from=(.+?)&&to=(.+?)$", re.IGNORECASE)
 
 def parse_get_route_path(path: str) -> tuple[tuple[float, float], tuple[float, float]]:
     """
