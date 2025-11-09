@@ -55,21 +55,32 @@ def candidate_routes(
         south, north = min(lat1, lat2) - dlat, max(lat1, lat2) + dlat
         return (west, south, east, north)
     
-    def route_edges(route_nodes):
-        return {
-            tuple(sorted((u, v)))
-            for u, v in zip(route_nodes[:-1], route_nodes[1:])
-        }
-        
-    def route_stats(G, route_nodes):
-        dist = 0.0
-        time_s = 0.0
-        for u, v in zip(route_nodes[:-1], route_nodes[1:]):
-            d = G.get_edge_data(u, v, 0)
-            L = float(d.get('length', 0.0))
+    def _route_edges(nodes):
+        return {tuple(sorted((u, v))) for u, v in zip(nodes[:-1], nodes[1:])}
+
+    def _route_stats(G, nodes, walk_speed_mps):
+        dist = 0.0; time_s = 0.0
+        for u, v in zip(nodes[:-1], nodes[1:]):
+            d = G.get_edge_data(u, v, 0) or {}
+            L = float(d.get("length", 0.0))
             dist += L
-            time_s += L / walk_speed_mps
-        return dist / 1000.0, time_s / 60.0  # km, min
+            time_s += L / walk_speed_mps if L > 0 else 0.0
+        return dist/1000.0, time_s/60.0
+
+    def _route_linestring(G, nodes):
+        coords = []
+        for i, (u, v) in enumerate(zip(nodes[:-1], nodes[1:])):
+            d = G.get_edge_data(u, v, 0) or {}
+            geom = d.get("geometry")
+            pts = list(geom.coords) if geom is not None else [
+                (G.nodes[u]["x"], G.nodes[u]["y"]), (G.nodes[v]["x"], G.nodes[v]["y"])
+            ]
+            if i>0 and coords and pts[0]==coords[-1]:
+                coords.extend(pts[1:])
+            else:
+                coords.extend(pts)
+        return {"type":"LineString","coordinates":coords}
+
 
     def _corridor_polygon(origin_ll, dest_ll, half_width_m=900.0):
         (lon1, lat1), (lon2, lat2) = origin_ll, dest_ll
