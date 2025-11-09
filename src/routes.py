@@ -135,58 +135,42 @@ def candidate_routes(
     src = ox.distance.nearest_nodes(G, origin[0], origin[1])
     dst = ox.distance.nearest_nodes(G, dest[0], dest[1])
     
-    fastest_route = ox.shortest_path(
-        G, src, dst, 
-        weight=lambda u,v,k,d: d.get('length', 0.0)/walk_speed_mps
-    )
-    fastest_dist_km, fastest_time_min = route_stats(G, fastest_route)
-    cap_s = (fastest_time_min + time_slack_min) * 60.0  # seconds
-    
-    chosen = []
-    chosen_edge_sets = []
-    
-    gen = nx.shortest_simple_paths(
-        G, src, dst, 
-        weight=lambda u,v,k,d: d.get('length', 0.0)/walk_speed_mps
-    )
-    for nodes in gen:
-        dist_km, time_min = route_stats(G, nodes)
-        if time_min * 60.0 > cap_s:
+    fastest = nx.shortest_path(G, src, dst, weight="time_s")
+    fastest_dist_km, fastest_time_min = _route_stats(G, fastest, walk_speed_mps)
+    cap_s = (fastest_time_min + time_slack_min) * 60.0
+
+    # 5) near-fastest, diverse
+    chosen, chosen_sets = [], []
+    for nodes in nx.shortest_simple_paths(G, src, dst, weight="time_s"):
+        dist_km, time_min = _route_stats(G, nodes, walk_speed_mps)
+        if time_min*60.0 > cap_s:
             break
-        
-        edge_set = route_edges(nodes)
-        is_diverse = True
-        for prev in chosen_edge_sets:
-            jacc = len(edge_set & prev) / max(1, len(edge_set | prev))
-            if jacc > max_overlap:
-                is_diverse = False
-                break
-        if not is_diverse:
+        e_set = _route_edges(nodes)
+        if any((len(e_set & prev)/max(1,len(e_set|prev))) > max_overlap for prev in chosen_sets):
             continue
-        
         chosen.append({
             "nodes": nodes,
             "time_min": time_min,
             "dist_km": dist_km,
-            "geometry": route_linestring(G, nodes)
+            "geometry": _route_linestring(G, nodes),
         })
-        chosen_edge_sets.append(edge_set)
+        chosen_sets.append(e_set)
         if len(chosen) >= max_routes:
             break
-        
-    if not chosen or chosen[0]["nodes"] != fastest_route:
+
+    if not chosen or chosen[0]["nodes"] != fastest:
         chosen.insert(0, {
-            "nodes": fastest_route,
+            "nodes": fastest,
             "time_min": fastest_time_min,
             "dist_km": fastest_dist_km,
-            "geometry": route_linestring(G, fastest_route)
+            "geometry": _route_linestring(G, fastest),
         })
-        
         if len(chosen) > max_routes:
             chosen = chosen[:max_routes]
-    
+
     chosen.sort(key=lambda r: r["time_min"])
     return chosen
+
 
 def topk_routes(
     origin: tuple[int, int],
