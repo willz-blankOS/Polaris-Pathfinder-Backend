@@ -3,6 +3,11 @@ import networkx as nx
 import osmnx as ox
 from shapely.geometry import Point, LineString
 
+# OSMnx v2 sane defaults
+ox.settings.use_cache = True
+ox.settings.overpass_rate_limit = True
+ox.settings.timeout = 180
+
 def candidate_routes(
     origin: tuple[int, int],
     dest: tuple[int, int],
