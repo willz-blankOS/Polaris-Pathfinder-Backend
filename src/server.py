@@ -1,8 +1,9 @@
-#!/usr/bin/env python3
-# server.py
+import sys
+
 import argparse
 import json
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 import logging
 import signal
 import ssl
@@ -16,6 +17,9 @@ def as_json_bytes(obj):
         obj, ensure_ascii=False, separators=(",", ":")
     ).encode()
 
+class ThreadingHTTPServer(ThreadingMixIn, ThreadingHTTPServer):
+    daemon_threads = True  # kill worker threads on exit
+    allow_reuse_address = True
 
 class ApiHandler(BaseHTTPRequestHandler):
     def end_headers(self):
@@ -56,7 +60,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         elif path == "/api/echo":
             # Echo query params + client info
             return self.send_json(200, {"query": q, "ip": self.client_address[0]})
-        elif path.startswith("/get_route/") or self.path.startswith("get_route/"):
+        elif path.startswith("/api/get_route/") or self.path.startswith("api/get_route/"):
             try:
                 origin, dest = utils.parse_get_route_path(path)
                 top_routes =  routes.topk_routes(origin, dest)
@@ -91,16 +95,17 @@ def main():
     ctx.load_cert_chain(certfile=args.cert, keyfile=args.key)
     httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
 
-    def shutdown(*_): 
-        logging.info("Shutting down…") 
-        httpd.shutdown()
-        exit()
-    signal.signal(signal.SIGINT, shutdown)
-    try: signal.signal(signal.SIGTERM, shutdown)
-    except Exception: pass
-
     logging.info(f"Serving HTTPS on {args.host}:{args.port}")
-    httpd.serve_forever()
+    try:
+        # shorter poll interval = faster shutdown
+        httpd.serve_forever(poll_interval=0.5)
+    except KeyboardInterrupt:
+        logging.info("Ctrl+C received, shutting down…")
+    finally:
+        httpd.server_close()
+        logging.info("Server stopped.")
+        sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
