@@ -37,9 +37,9 @@ def _to_float_degrees(component: str) -> float:
 
     return sign * val
 
-def parse_latlon_pair(text: str) -> tuple[float, float]:
+def parse_lonlat_pair(text: str) -> tuple[float, float]:
     """
-    Parse "lat,lon" (recommended) or "lat lon" into (lat, lon) floats.
+    Parse "lon,lat" (recommended) or "lat lon" into (lat, lon) floats.
     Works with decimal or DMS components; use a comma if your DMS contains spaces.
     """
     t = text.strip()
@@ -61,7 +61,7 @@ def parse_latlon_pair(text: str) -> tuple[float, float]:
     if not (-180.0 <= lon <= 180.0):
         raise ValueError(f"Longitude out of range: {lon} from {text!r}")
 
-    return lat, lon
+    return lon, lat
 
 # ---- Path parsing helper ----
 
@@ -85,8 +85,8 @@ def parse_get_route_path(path: str) -> tuple[tuple[float, float], tuple[float, f
         raise ValueError(f"Path doesn't match get_route format: {path!r}")
 
     raw_origin = unquote(m.group(1))
-    raw_dest   = unquote(m.group(2))
+    raw_dest = unquote(m.group(2))
 
-    origin = parse_latlon_pair(raw_origin)
-    dest   = parse_latlon_pair(raw_dest)
+    origin = parse_lonlat_pair(raw_origin)
+    dest   = parse_lonlat_pair(raw_dest)
     return origin, dest
